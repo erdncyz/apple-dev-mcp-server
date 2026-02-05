@@ -1,6 +1,6 @@
 {
   "name": "apple-dev-mcp-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MCP Server for Apple Development - Fetches docs, analyzes build logs, checks Swift Evolution",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -19,9 +20,15 @@
     "xcode",
     "swift",
     "documentation",
-    "model-context-protocol"
+    "model-context-protocol",
+    "swiftui",
+    "swiftdata",
+    "ai",
+    "llm",
+    "claude",
+    "copilot"
   ],
-  "author": "",
+  "author": "erdncyz",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -34,5 +41,17 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erdncyz/apple-dev-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/erdncyz/apple-dev-mcp-server/issues"
+  },
+  "homepage": "https://github.com/erdncyz/apple-dev-mcp-server#readme"
 }

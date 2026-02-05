@@ -1,11 +1,9 @@
 /**
- * Fetch Apple Developer Documentation
+ * Fetch Apple Developer Documentation - LIVE
  * 
- * Uses Apple's developer documentation search API to fetch
- * official documentation for Swift APIs and frameworks.
+ * Uses Apple's official documentation JSON API to fetch
+ * real-time documentation from developer.apple.com
  */
-
-import * as cheerio from "cheerio";
 
 interface AppleDocResult {
   title: string;
@@ -14,371 +12,384 @@ interface AppleDocResult {
   type: string;
   framework?: string;
   availability?: string[];
-  codeExample?: string;
+  codeExamples?: string[];
+  declaration?: string;
+  overview?: string;
 }
 
-// Apple Developer Documentation Search API endpoint
-const APPLE_SEARCH_API = "https://developer.apple.com/search/api/search.php";
-const APPLE_DOCS_BASE = "https://developer.apple.com/documentation";
+interface AppleDocJSON {
+  metadata?: {
+    title?: string;
+    roleHeading?: string;
+    platforms?: Array<{ name: string; introducedAt: string }>;
+    modules?: Array<{ name: string }>;
+    fragments?: Array<{ text: string; kind: string }>;
+  };
+  abstract?: Array<{ text: string; type: string }>;
+  primaryContentSections?: Array<{
+    kind: string;
+    content?: Array<any>;
+    declarations?: Array<{
+      tokens: Array<{ text: string; kind: string }>;
+    }>;
+  }>;
+}
+
+// Apple Documentation JSON API base
+const APPLE_DOCS_API = "https://developer.apple.com/tutorials/data/documentation";
 
 /**
- * Common Swift/Apple frameworks for context
+ * Framework to documentation path mappings
  */
-const FRAMEWORKS = [
-  "SwiftUI", "UIKit", "AppKit", "Foundation", "SwiftData",
-  "RealityKit", "ARKit", "CoreData", "Combine", "CoreML",
-  "Vision", "NaturalLanguage", "MapKit", "CloudKit", "HealthKit",
-  "StoreKit", "GameKit", "SpriteKit", "SceneKit", "Metal",
-  "AVFoundation", "CoreImage", "CoreGraphics", "CoreAnimation"
-];
+const FRAMEWORK_PATHS: Record<string, string[]> = {
+  "swiftui": ["swiftui"],
+  "uikit": ["uikit"],
+  "foundation": ["foundation"],
+  "observation": ["observation"],
+  "swiftdata": ["swiftdata"],
+  "combine": ["combine"],
+  "realitykit": ["realitykit"],
+  "arkit": ["arkit"],
+  "coredata": ["coredata"],
+  "coreml": ["coreml"],
+  "mapkit": ["mapkit"],
+  "cloudkit": ["cloudkit"],
+  "healthkit": ["healthkit"],
+  "storekit": ["storekit"],
+  "avfoundation": ["avfoundation"],
+  "swift": ["swift", "observation"]
+};
 
 /**
- * Search Apple's documentation and return formatted results
+ * Common API name mappings
+ */
+const API_MAPPINGS: Record<string, { framework: string; path: string }> = {
+  // SwiftUI
+  "navigationstack": { framework: "swiftui", path: "swiftui/navigationstack" },
+  "navigationlink": { framework: "swiftui", path: "swiftui/navigationlink" },
+  "navigationpath": { framework: "swiftui", path: "swiftui/navigationpath" },
+  "navigationsplitview": { framework: "swiftui", path: "swiftui/navigationsplitview" },
+  "list": { framework: "swiftui", path: "swiftui/list" },
+  "form": { framework: "swiftui", path: "swiftui/form" },
+  "sheet": { framework: "swiftui", path: "swiftui/view/sheet(ispresented:ondismiss:content:)" },
+  "state": { framework: "swiftui", path: "swiftui/state" },
+  "binding": { framework: "swiftui", path: "swiftui/binding" },
+  "environment": { framework: "swiftui", path: "swiftui/environment" },
+  "environmentobject": { framework: "swiftui", path: "swiftui/environmentobject" },
+  "stateobject": { framework: "swiftui", path: "swiftui/stateobject" },
+  "observedobject": { framework: "swiftui", path: "swiftui/observedobject" },
+  "view": { framework: "swiftui", path: "swiftui/view" },
+  "text": { framework: "swiftui", path: "swiftui/text" },
+  "button": { framework: "swiftui", path: "swiftui/button" },
+  "image": { framework: "swiftui", path: "swiftui/image" },
+  "asyncimage": { framework: "swiftui", path: "swiftui/asyncimage" },
+  "lazyvgrid": { framework: "swiftui", path: "swiftui/lazyvgrid" },
+  "lazyhgrid": { framework: "swiftui", path: "swiftui/lazyhgrid" },
+  "scrollview": { framework: "swiftui", path: "swiftui/scrollview" },
+  "tabview": { framework: "swiftui", path: "swiftui/tabview" },
+  "alert": { framework: "swiftui", path: "swiftui/view/alert(ispresented:content:)" },
+  "toolbar": { framework: "swiftui", path: "swiftui/view/toolbar(content:)-5w0tj" },
+  "searchable": { framework: "swiftui", path: "swiftui/view/searchable(text:placement:prompt:)" },
+  "task": { framework: "swiftui", path: "swiftui/view/task(priority:_:)" },
+  "onappear": { framework: "swiftui", path: "swiftui/view/onappear(perform:)" },
+  "ondisappear": { framework: "swiftui", path: "swiftui/view/ondisappear(perform:)" },
+  
+  // Observation Framework
+  "observable": { framework: "observation", path: "observation/observable" },
+  "@observable": { framework: "observation", path: "observation/observable()" },
+  
+  // SwiftData
+  "@model": { framework: "swiftdata", path: "swiftdata/model()" },
+  "modelcontainer": { framework: "swiftdata", path: "swiftdata/modelcontainer" },
+  "modelcontext": { framework: "swiftdata", path: "swiftdata/modelcontext" },
+  "@query": { framework: "swiftdata", path: "swiftdata/query" },
+  
+  // Combine
+  "publisher": { framework: "combine", path: "combine/publisher" },
+  "subject": { framework: "combine", path: "combine/subject" },
+  "passthroughsubject": { framework: "combine", path: "combine/passthroughsubject" },
+  "currentvaluesubject": { framework: "combine", path: "combine/currentvaluesubject" },
+  
+  // Foundation
+  "url": { framework: "foundation", path: "foundation/url" },
+  "urlsession": { framework: "foundation", path: "foundation/urlsession" },
+  "data": { framework: "foundation", path: "foundation/data" },
+  "date": { framework: "foundation", path: "foundation/date" },
+  "userdefaults": { framework: "foundation", path: "foundation/userdefaults" },
+  "notification": { framework: "foundation", path: "foundation/notification" },
+  "notificationcenter": { framework: "foundation", path: "foundation/notificationcenter" },
+  
+  // UIKit
+  "uiviewcontroller": { framework: "uikit", path: "uikit/uiviewcontroller" },
+  "uitableview": { framework: "uikit", path: "uikit/uitableview" },
+  "uicollectionview": { framework: "uikit", path: "uikit/uicollectionview" },
+  "uinavigationcontroller": { framework: "uikit", path: "uikit/uinavigationcontroller" }
+};
+
+/**
+ * Fetch live documentation from Apple
  */
 export async function fetchAppleDocs(
   query: string,
   framework?: string,
   includeExamples: boolean = true
 ): Promise<string> {
+  const normalizedQuery = query.toLowerCase().replace(/^@/, "");
+  
   try {
-    // Build search query
-    const searchQuery = framework ? `${framework} ${query}` : query;
+    // Try direct API mapping first
+    let docPath = getDocPath(normalizedQuery, framework);
     
-    // Try to fetch from Apple's documentation
-    const results = await searchAppleDocs(searchQuery);
-    
-    if (results.length === 0) {
-      return formatNoResults(query, framework);
+    if (docPath) {
+      const liveDoc = await fetchLiveDoc(docPath);
+      if (liveDoc) {
+        return formatLiveDoc(liveDoc, query, includeExamples);
+      }
     }
-
-    // Format the results
-    return formatDocResults(results, query, framework, includeExamples);
+    
+    // Try framework-based search
+    if (framework) {
+      const frameworkPaths = FRAMEWORK_PATHS[framework.toLowerCase()];
+      if (frameworkPaths) {
+        for (const fwPath of frameworkPaths) {
+          const tryPath = `${fwPath}/${normalizedQuery}`;
+          const liveDoc = await fetchLiveDoc(tryPath);
+          if (liveDoc) {
+            return formatLiveDoc(liveDoc, query, includeExamples);
+          }
+        }
+      }
+    }
+    
+    // Try common frameworks
+    const commonFrameworks = ["swiftui", "foundation", "uikit", "observation", "swiftdata", "combine"];
+    for (const fw of commonFrameworks) {
+      const tryPath = `${fw}/${normalizedQuery}`;
+      const liveDoc = await fetchLiveDoc(tryPath);
+      if (liveDoc) {
+        return formatLiveDoc(liveDoc, query, includeExamples);
+      }
+    }
+    
+    // If no live doc found, return a message
+    return formatNotFound(query, framework);
+    
   } catch (error) {
-    // Fallback to curated documentation info
-    return generateFallbackDocs(query, framework, includeExamples);
+    return formatError(query, framework, error);
   }
 }
 
 /**
- * Search Apple documentation API
+ * Get documentation path for a query
  */
-async function searchAppleDocs(query: string): Promise<AppleDocResult[]> {
-  const searchUrl = `${APPLE_SEARCH_API}?q=${encodeURIComponent(query)}&lang=en&type=documentation`;
+function getDocPath(query: string, framework?: string): string | null {
+  const normalizedQuery = query.toLowerCase().replace(/^@/, "");
   
-  const response = await fetch(searchUrl, {
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Search failed: ${response.status}`);
+  // Check direct mapping
+  if (API_MAPPINGS[normalizedQuery]) {
+    return API_MAPPINGS[normalizedQuery].path;
   }
-
-  const data = await response.json() as any;
-  const results: AppleDocResult[] = [];
-
-  if (data.results) {
-    for (const item of data.results.slice(0, 5)) {
-      results.push({
-        title: item.title || "",
-        description: item.description || "",
-        url: item.url ? `https://developer.apple.com${item.url}` : "",
-        type: item.type || "documentation",
-        framework: item.framework
-      });
-    }
-  }
-
-  return results;
-}
-
-/**
- * Format documentation results
- */
-function formatDocResults(
-  results: AppleDocResult[],
-  query: string,
-  framework?: string,
-  includeExamples?: boolean
-): string {
-  let output = `# Apple Developer Documentation: ${query}\n\n`;
   
+  // Check with @ prefix
+  if (API_MAPPINGS[`@${normalizedQuery}`]) {
+    return API_MAPPINGS[`@${normalizedQuery}`].path;
+  }
+  
+  // Build path from framework
   if (framework) {
-    output += `**Framework:** ${framework}\n\n`;
+    return `${framework.toLowerCase()}/${normalizedQuery}`;
   }
+  
+  return null;
+}
 
-  output += `## Search Results\n\n`;
-
-  for (const result of results) {
-    output += `### ${result.title}\n`;
-    output += `**Type:** ${result.type}\n`;
-    if (result.framework) {
-      output += `**Framework:** ${result.framework}\n`;
+/**
+ * Fetch live documentation from Apple's JSON API
+ */
+async function fetchLiveDoc(docPath: string): Promise<AppleDocJSON | null> {
+  const url = `${APPLE_DOCS_API}/${docPath}.json`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+      }
+    });
+    
+    if (!response.ok) {
+      return null;
     }
-    output += `**URL:** ${result.url}\n\n`;
-    if (result.description) {
-      output += `${result.description}\n\n`;
-    }
-    output += `---\n\n`;
+    
+    return await response.json() as AppleDocJSON;
+  } catch {
+    return null;
   }
+}
 
+/**
+ * Format live documentation response
+ */
+function formatLiveDoc(doc: AppleDocJSON, query: string, includeExamples: boolean): string {
+  let output = "";
+  
+  const title = doc.metadata?.title || query;
+  const roleHeading = doc.metadata?.roleHeading || "";
+  const framework = doc.metadata?.modules?.[0]?.name || "";
+  
+  output += `# 📚 Apple Developer Documentation: ${title}\n\n`;
+  output += `> ✅ **Live documentation from developer.apple.com**\n\n`;
+  
+  if (roleHeading) {
+    output += `**Type:** ${roleHeading}\n`;
+  }
+  if (framework) {
+    output += `**Framework:** ${framework}\n`;
+  }
+  
+  // Platform availability
+  const platforms = doc.metadata?.platforms;
+  if (platforms && platforms.length > 0) {
+    output += `**Availability:** `;
+    output += platforms.map(p => `${p.name} ${p.introducedAt}+`).join(", ");
+    output += `\n`;
+  }
+  
+  output += `**Documentation URL:** https://developer.apple.com/documentation/${getDocPathFromTitle(title, framework)}\n\n`;
+  
+  // Declaration
+  const declarations = doc.primaryContentSections?.find(s => s.kind === "declarations");
+  if (declarations?.declarations?.[0]) {
+    const tokens = declarations.declarations[0].tokens;
+    const declarationText = tokens.map(t => t.text).join("");
+    output += `## Declaration\n\n`;
+    output += "```swift\n";
+    output += declarationText;
+    output += "\n```\n\n";
+  }
+  
+  // Abstract
+  if (doc.abstract && doc.abstract.length > 0) {
+    output += `## Overview\n\n`;
+    const abstractText = doc.abstract.map(a => a.text).join("");
+    output += `${abstractText}\n\n`;
+  }
+  
+  // Content sections
+  const contentSection = doc.primaryContentSections?.find(s => s.kind === "content");
+  if (contentSection?.content) {
+    output += parseContentSection(contentSection.content);
+  }
+  
+  // Code examples from content
   if (includeExamples) {
-    output += generateCodeExamples(query, framework);
+    const codeExamples = extractCodeExamples(doc);
+    if (codeExamples.length > 0) {
+      output += `## Code Examples\n\n`;
+      for (const example of codeExamples) {
+        output += "```swift\n";
+        output += example;
+        output += "\n```\n\n";
+      }
+    }
   }
-
-  output += `\n## Quick Reference Links\n`;
-  output += `- [Apple Developer Documentation](https://developer.apple.com/documentation/)\n`;
-  output += `- [Swift Documentation](https://docs.swift.org/)\n`;
-  output += `- [WWDC Videos](https://developer.apple.com/videos/)\n`;
-
+  
+  // Footer
+  output += `---\n`;
+  output += `*Documentation fetched live from Apple Developer on ${new Date().toISOString().split('T')[0]}*\n`;
+  
   return output;
 }
 
 /**
- * Generate code examples based on query
+ * Parse content section to markdown
  */
-function generateCodeExamples(query: string, framework?: string): string {
-  const lowerQuery = query.toLowerCase();
-  let examples = `## Code Examples\n\n`;
-
-  // SwiftUI Navigation examples
-  if (lowerQuery.includes("navigationstack") || lowerQuery.includes("navigation")) {
-    examples += `### NavigationStack Example (SwiftUI)\n\n`;
-    examples += "```swift\n";
-    examples += `import SwiftUI
-
-struct ContentView: View {
-    @State private var path = NavigationPath()
-    
-    var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                NavigationLink("Go to Detail", value: "detail")
-            }
-            .navigationDestination(for: String.self) { value in
-                DetailView(item: value)
-            }
-            .navigationTitle("Home")
-        }
+function parseContentSection(content: any[]): string {
+  let output = "";
+  
+  for (const item of content) {
+    if (item.type === "heading") {
+      const level = item.level || 2;
+      output += `${"#".repeat(level)} ${item.text}\n\n`;
+    } else if (item.type === "paragraph") {
+      const text = item.inlineContent?.map((c: any) => {
+        if (c.type === "text") return c.text;
+        if (c.type === "codeVoice") return `\`${c.code}\``;
+        if (c.type === "reference") return `**${c.identifier?.split("/").pop() || ""}**`;
+        return "";
+      }).join("") || "";
+      output += `${text}\n\n`;
+    } else if (item.type === "codeListing") {
+      output += "```" + (item.syntax || "swift") + "\n";
+      output += (item.code || []).join("\n");
+      output += "\n```\n\n";
     }
-}
-
-struct DetailView: View {
-    let item: String
-    
-    var body: some View {
-        Text("Detail: \\(item)")
-            .navigationTitle("Detail")
-    }
-}
-`;
-    examples += "```\n\n";
   }
-
-  // SwiftData examples
-  if (lowerQuery.includes("swiftdata") || lowerQuery.includes("@model")) {
-    examples += `### SwiftData Model Example\n\n`;
-    examples += "```swift\n";
-    examples += `import SwiftData
-
-@Model
-final class Item {
-    var timestamp: Date
-    var title: String
-    var isCompleted: Bool
-    
-    @Relationship(deleteRule: .cascade)
-    var tags: [Tag]?
-    
-    init(title: String, timestamp: Date = .now) {
-        self.title = title
-        self.timestamp = timestamp
-        self.isCompleted = false
-    }
+  
+  return output;
 }
 
-@Model
-final class Tag {
-    var name: String
-    
-    init(name: String) {
-        self.name = name
+/**
+ * Extract code examples from documentation
+ */
+function extractCodeExamples(doc: AppleDocJSON): string[] {
+  const examples: string[] = [];
+  
+  const contentSection = doc.primaryContentSections?.find(s => s.kind === "content");
+  if (contentSection?.content) {
+    for (const item of contentSection.content) {
+      if (item.type === "codeListing" && item.code) {
+        examples.push(item.code.join("\n"));
+      }
     }
-}
-
-// Usage in SwiftUI
-struct ContentView: View {
-    @Environment(\\.modelContext) private var modelContext
-    @Query private var items: [Item]
-    
-    var body: some View {
-        List(items) { item in
-            Text(item.title)
-        }
-    }
-}
-`;
-    examples += "```\n\n";
   }
-
-  // Observable macro examples
-  if (lowerQuery.includes("@observable") || lowerQuery.includes("observable")) {
-    examples += `### @Observable Macro Example (Swift 5.9+)\n\n`;
-    examples += "```swift\n";
-    examples += `import SwiftUI
-
-@Observable
-final class AppState {
-    var counter = 0
-    var userName = ""
-    var isLoggedIn = false
-    
-    func increment() {
-        counter += 1
-    }
-}
-
-struct ContentView: View {
-    @State private var appState = AppState()
-    
-    var body: some View {
-        VStack {
-            Text("Count: \\(appState.counter)")
-            Button("Increment") {
-                appState.increment()
-            }
-        }
-    }
-}
-`;
-    examples += "```\n\n";
-  }
-
-  // RealityKit examples
-  if (lowerQuery.includes("realitykit") || lowerQuery.includes("reality")) {
-    examples += `### RealityKit Example\n\n`;
-    examples += "```swift\n";
-    examples += `import SwiftUI
-import RealityKit
-
-struct ImmersiveView: View {
-    var body: some View {
-        RealityView { content in
-            // Add a simple 3D box
-            let mesh = MeshResource.generateBox(size: 0.1)
-            let material = SimpleMaterial(color: .blue, isMetallic: true)
-            let entity = ModelEntity(mesh: mesh, materials: [material])
-            
-            entity.position = [0, 1, -1]
-            content.add(entity)
-        }
-    }
-}
-`;
-    examples += "```\n\n";
-  }
-
-  // Async/await examples
-  if (lowerQuery.includes("async") || lowerQuery.includes("await") || lowerQuery.includes("concurrency")) {
-    examples += `### Swift Concurrency Example\n\n`;
-    examples += "```swift\n";
-    examples += `import Foundation
-
-// Async function
-func fetchData() async throws -> Data {
-    let url = URL(string: "https://api.example.com/data")!
-    let (data, _) = try await URLSession.shared.data(from: url)
-    return data
-}
-
-// Actor for thread-safe state
-actor DataManager {
-    private var cache: [String: Data] = [:]
-    
-    func getData(for key: String) async throws -> Data {
-        if let cached = cache[key] {
-            return cached
-        }
-        let data = try await fetchData()
-        cache[key] = data
-        return data
-    }
-}
-
-// Task group example
-func fetchMultiple() async throws -> [Data] {
-    try await withThrowingTaskGroup(of: Data.self) { group in
-        for i in 0..<5 {
-            group.addTask {
-                try await fetchData()
-            }
-        }
-        
-        var results: [Data] = []
-        for try await data in group {
-            results.append(data)
-        }
-        return results
-    }
-}
-`;
-    examples += "```\n\n";
-  }
-
+  
   return examples;
 }
 
 /**
- * Format no results message
+ * Get documentation path from title
  */
-function formatNoResults(query: string, framework?: string): string {
-  let message = `# No Documentation Found for "${query}"\n\n`;
-  
-  if (framework) {
-    message += `Searched in framework: ${framework}\n\n`;
-  }
-
-  message += `## Suggestions:\n`;
-  message += `1. Check the spelling of the API name\n`;
-  message += `2. Try searching for a broader term\n`;
-  message += `3. Visit [Apple Developer Documentation](https://developer.apple.com/documentation/) directly\n\n`;
-  message += `## Popular Frameworks:\n`;
-  
-  for (const fw of FRAMEWORKS.slice(0, 10)) {
-    message += `- ${fw}\n`;
-  }
-
-  return message;
+function getDocPathFromTitle(title: string, framework: string): string {
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedFramework = framework.toLowerCase();
+  return `${normalizedFramework}/${normalizedTitle}`;
 }
 
 /**
- * Generate fallback documentation when API is unavailable
+ * Format not found message
  */
-function generateFallbackDocs(
-  query: string,
-  framework?: string,
-  includeExamples?: boolean
-): string {
-  let output = `# Apple Documentation Reference: ${query}\n\n`;
-  
-  output += `> **Note:** Unable to fetch live documentation. Providing curated reference information.\n\n`;
-  
-  output += `## Official Resources\n\n`;
-  output += `- **Documentation:** [developer.apple.com/documentation](https://developer.apple.com/documentation/)\n`;
-  output += `- **Search:** [developer.apple.com/search/?q=${encodeURIComponent(query)}](https://developer.apple.com/search/?q=${encodeURIComponent(query)})\n`;
-  
+function formatNotFound(query: string, framework?: string): string {
+  let output = `# Apple Documentation: ${query}\n\n`;
+  output += `> ⚠️ Could not find live documentation for "${query}"`;
   if (framework) {
-    output += `- **${framework} Docs:** [developer.apple.com/documentation/${framework.toLowerCase()}](https://developer.apple.com/documentation/${framework.toLowerCase()})\n`;
+    output += ` in ${framework}`;
   }
+  output += `\n\n`;
   
-  output += `\n## WWDC Sessions\n`;
-  output += `Search for related sessions: [developer.apple.com/videos](https://developer.apple.com/videos/)\n\n`;
+  output += `## Suggestions\n\n`;
+  output += `1. Check the spelling of the API name\n`;
+  output += `2. Try specifying the framework (e.g., "SwiftUI")\n`;
+  output += `3. Use the full API name (e.g., "NavigationStack" instead of "navigation")\n\n`;
+  
+  output += `## Quick Links\n\n`;
+  output += `- [Apple Developer Documentation](https://developer.apple.com/documentation/)\n`;
+  output += `- [SwiftUI Documentation](https://developer.apple.com/documentation/swiftui)\n`;
+  output += `- [Swift Documentation](https://developer.apple.com/documentation/swift)\n`;
+  output += `- [WWDC Videos](https://developer.apple.com/videos/)\n`;
+  
+  return output;
+}
 
-  if (includeExamples) {
-    output += generateCodeExamples(query, framework);
-  }
-
+/**
+ * Format error message
+ */
+function formatError(query: string, framework: string | undefined, error: unknown): string {
+  let output = `# Apple Documentation: ${query}\n\n`;
+  output += `> ❌ Error fetching documentation\n\n`;
+  output += `An error occurred while fetching documentation. Please try again.\n\n`;
+  output += `## Quick Links\n\n`;
+  output += `- [Apple Developer Documentation](https://developer.apple.com/documentation/)\n`;
+  
   return output;
 }
