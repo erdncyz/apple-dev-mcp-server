@@ -1,6 +1,6 @@
 {
   "name": "apple-dev-mcp-server",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "MCP Server for Apple Development - Fetches docs, analyzes build logs, checks Swift Evolution",
   "type": "module",
   "main": "dist/index.js",
