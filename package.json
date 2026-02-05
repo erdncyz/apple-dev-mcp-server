@@ -1,0 +1,38 @@
+{
+  "name": "apple-dev-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Apple Development - Fetches docs, analyzes build logs, checks Swift Evolution",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "apple-dev-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "apple",
+    "xcode",
+    "swift",
+    "documentation",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "cheerio": "^1.0.0-rc.12",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
